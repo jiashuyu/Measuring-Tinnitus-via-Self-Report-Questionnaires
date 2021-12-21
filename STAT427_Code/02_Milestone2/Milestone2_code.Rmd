@@ -1,0 +1,717 @@
+---
+title: 'STAT 427 Milestone 2 Second Trial'
+author: "03/27/2021, Shuyu Jia"
+output:
+  pdf_document:
+    toc: no
+    toc_depth: 2
+---
+
+```{r setup, include=FALSE}
+  knitr::opts_chunk$set(include = TRUE)  # TRUE for solution; FALSE for questions set
+  knitr::opts_chunk$set(echo = TRUE)
+  knitr::opts_chunk$set(message = FALSE)
+  knitr::opts_chunk$set(warning = FALSE)
+  knitr::opts_chunk$set(fig.height = 6, fig.width = 8, out.width = '80%', fig.align = "center")
+  options(width = 90)
+```
+
+```{css, echo=FALSE}
+.solution {
+background-color: #CCDDFF;
+}
+```
+
+```{r, warning=FALSE, message=FALSE}
+# load packages
+library(statmod)
+library(tidyverse)
+library(factoextra)
+library(pheatmap)
+library(umap)
+library(glmnet)
+library(caret)
+library(ROSE)
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+library(gbm)
+
+# read in data
+data = read.csv("updated_combined_dataset.csv",skip = 1)
+```
+
+```{r}
+# extract emotional-related columns
+emotion_data = data.matrix(data[,c(8,12,23,24,25)])
+emotion_data = emotion_data[complete.cases(emotion_data),]
+colnames(emotion_data) = c("THI_E", "TPFQ_E", "TFI_E", "BAI", "BDI")
+emotion_df = data.frame(emotion_data)
+```
+
+```{r}
+hist(emotion_data[,4], xlab = "BAI", ylab = "Counts", main = "Histogram of BAI total score")
+```
+
+```{r}
+hist(emotion_data[,5], xlab = "BDI", ylab = "Counts", main = "Histogram of BDI total score")
+```
+
+```{r}
+# train-test split
+set.seed(1)
+tst_idx = sample(1:187, 37, replace = FALSE)
+trn_emotion = emotion_df[-tst_idx,]
+tst_emotion = emotion_df[tst_idx,]
+```
+
+```{r}
+# linear regression, BAI response
+lm_mod = lm(BAI ~ THI_E + TPFQ_E + TFI_E, data = emotion_df)
+preds = predict(lm_mod, emotion_df[,1:3])
+
+rmse = function(act, pred){
+  sqrt(mean((act-pred)^2))
+}
+
+mae = function(act, pred){
+  mean(abs(act-pred))
+}
+
+mae(emotion_df[,4], preds)
+```
+
+```{r}
+plot(emotion_df[,4], preds, pch=19, main = "Linear Regression, BAI",
+     xlab = "BAI", ylab = "predicted BAI")
+abline(0,1, col="red", lwd = 2)
+```
+
+```{r}
+# linear regression, BDI response
+lm_mod_2 = lm(BDI ~ THI_E + TPFQ_E + TFI_E, data = emotion_df)
+preds = predict(lm_mod_2, emotion_df[,1:3])
+mae(emotion_df[,5], preds)
+```
+
+```{r}
+plot(emotion_df[,5], preds, pch=19, main = "Linear Regression, BDI",
+     xlab = "BDI", ylab = "predicted BDI")
+abline(0,1, col="red", lwd = 2)
+```
+
+Linear regression is terrible.
+
+```{r}
+# log transform, BAI response
+log_mod = lm(log(BAI+1) ~ THI_E + TPFQ_E + TFI_E, data = emotion_df)
+preds = predict(log_mod, emotion_df[,1:3])
+mae(emotion_df[,4], exp(preds)-1)
+```
+
+```{r}
+plot(emotion_df[,4], exp(preds)-1, pch=19, main = "Log Transformation, BAI",
+     xlab = "BAI", ylab = "predicted BAI")
+abline(0,1, col="red", lwd = 2)
+```
+
+```{r}
+# log transform, BDI response
+log_mod = lm(log(BDI+1) ~ THI_E + TPFQ_E + TFI_E, data = emotion_df)
+preds = predict(log_mod, emotion_df[,1:3])
+mae(emotion_df[,5], exp(preds)-1)
+```
+
+```{r}
+plot(emotion_df[,5], exp(preds)-1, pch=19, main = "Log Transformation, BDI",
+     xlab = "BDI", ylab = "predicted BDI")
+abline(0,1, col="red", lwd = 2)
+```
+
+Log transform is slightly better than linear regression.
+
+```{r}
+# random forest, BAI
+set.seed(1)
+rf_mod = randomForest(BAI ~ THI_E + TPFQ_E + TFI_E, data = trn_emotion, mtry = 3)
+
+preds = predict(rf_mod, trn_emotion)
+mae(trn_emotion$BAI, preds)
+
+preds = predict(rf_mod, tst_emotion)
+mae(tst_emotion$BAI, preds)
+```
+
+```{r}
+set.seed(1)
+rf_mod = randomForest(BAI ~ THI_E + TPFQ_E + TFI_E, data = emotion_df, mtry = 3)
+preds = predict(rf_mod, emotion_df)
+mae(emotion_df$BAI, preds)
+plot(emotion_df[,4], preds, pch=19, main = "Random Forests, BAI",
+     xlab = "BAI", ylab = "predicted BAI")
+abline(0,1, col="red", lwd = 2)
+```
+
+```{r}
+# random forest, BDI
+set.seed(1)
+rf_mod = randomForest(BDI ~ THI_E + TPFQ_E + TFI_E, data = trn_emotion, mtry = 3)
+
+preds = predict(rf_mod, trn_emotion)
+mae(trn_emotion$BDI, preds)
+
+preds = predict(rf_mod, tst_emotion)
+mae(tst_emotion$BDI, preds)
+```
+
+```{r}
+set.seed(1)
+rf_mod = randomForest(BDI ~ THI_E + TPFQ_E + TFI_E, data = emotion_df, mtry = 3)
+preds = predict(rf_mod, emotion_df)
+mae(emotion_df$BDI, preds)
+plot(emotion_df[,5], preds, pch=19, main = "Random Forests, BDI",
+     xlab = "BDI", ylab = "predicted BDI")
+abline(0,1, col="red", lwd = 2)
+```
+
+```{r}
+# decision tree, BAI
+tree_mod = rpart(BAI ~ THI_E + TPFQ_E + TFI_E, data = emotion_df, cp = 0.001)
+preds = predict(tree_mod, emotion_df[,1:3])
+mae(emotion_df[,4], preds)
+```
+
+```{r}
+rpart.plot(tree_mod)
+```
+
+```{r}
+plot(emotion_df[,4], preds, pch=19, main = "Decision Trees, BAI",
+     xlab = "BAI", ylab = "predicted BAI")
+abline(0,1, col="red", lwd = 2)
+```
+
+```{r}
+# decision tree, BDI
+tree_mod = rpart(BDI ~ THI_E + TPFQ_E + TFI_E, data = emotion_df, cp = 0.001)
+preds = predict(tree_mod, emotion_df[,1:3])
+mae(emotion_df[,5], preds)
+```
+
+```{r}
+plot(emotion_df[,5], preds, pch=19, main = "Decision Trees, BDI",
+     xlab = "BDI", ylab = "predicted BDI")
+abline(0,1, col="red", lwd = 2)
+```
+
+```{r}
+# gbm, BAI
+#set.seed(1)
+#gbm_mod = gbm(BAI ~ THI_E + TPFQ_E + TFI_E, data = trn_emotion, distribution = "gaussian",
+#              n.trees = 10000, interaction.depth = 10, shrinkage = 0.01)
+#preds = predict(gbm_mod, trn_emotion)
+#mae(trn_emotion$BAI, preds)
+```
+
+training MAE 1.99
+
+```{r}
+#preds = predict(gbm_mod, tst_emotion)
+#mae(tst_emotion$BAI, preds)
+```
+
+testing MAE 3.47
+
+```{r}
+set.seed(1)
+gbm_mod = gbm(BAI ~ THI_E + TPFQ_E + TFI_E, data = emotion_df, distribution = "gaussian",
+              n.trees = 10000, interaction.depth = 10, shrinkage = 0.01)
+preds = predict(gbm_mod, emotion_df)
+mae(emotion_df$BAI, preds)
+plot(emotion_df[,4], preds, pch=19, main = "Gradient Boosting, BAI",
+     xlab = "BAI", ylab = "predicted BAI")
+abline(0,1, col="red", lwd = 2)
+```
+
+```{r}
+# gbm, BDI
+#set.seed(1)
+#gbm_mod = gbm(BDI ~ THI_E + TPFQ_E + TFI_E, data = trn_emotion, distribution = "gaussian",
+#              n.trees = 10000, interaction.depth = 10, shrinkage = 0.01)
+#preds = predict(gbm_mod, trn_emotion)
+#mae(trn_emotion$BDI, preds)
+```
+
+training MAE 1.638
+
+```{r}
+#preds = predict(gbm_mod, tst_emotion)
+#mae(tst_emotion$BDI, preds)
+```
+
+testing MAE 5.20
+
+```{r}
+set.seed(1)
+gbm_mod = gbm(BDI ~ THI_E + TPFQ_E + TFI_E, data = emotion_df, distribution = "gaussian",
+              n.trees = 10000, interaction.depth = 10, shrinkage = 0.01)
+preds = predict(gbm_mod, emotion_df)
+mae(emotion_df$BDI, preds)
+plot(emotion_df[,5], preds, pch=19, main = "Gradient Boosting, BDI",
+     xlab = "BDI", ylab = "predicted BDI")
+abline(0,1, col="red", lwd = 2)
+```
+
+
+
+```{r}
+# transform BAI and BDI to binary varibles
+emotion_df$BAI_bin = as.numeric(emotion_df[,4]<=2)
+emotion_df$BDI_bin = as.numeric(emotion_df[,5]<=2)
+```
+
+```{r}
+# logistic regression, BAI binary
+log_mod = glm(BAI_bin ~ THI_E + TPFQ_E + TFI_E, data = emotion_df, family = "binomial")
+preds = ifelse(predict(log_mod, emotion_df[,1:3], type = "response")>0.5, 1, 0)
+mean(emotion_df[,6]==preds)
+mean(emotion_df$BAI_bin)
+```
+
+Accuracy 0.63, NIR 0.54. Terrible.
+
+```{r}
+# logistic regression, BDI binary
+log_mod_2 = glm(BDI_bin ~ THI_E + TPFQ_E + TFI_E, data = emotion_df, family = "binomial")
+preds = ifelse(predict(log_mod_2, emotion_df[,1:3], type = "response")>0.5, 1, 0)
+mean(emotion_df[,7]==preds)
+1-mean(emotion_df$BDI_bin)
+```
+
+Accuracy 0.68, NIR 0.51. Terrible.
+
+```{r}
+# combine BAI and BDI
+emotion_df$BAI.BDI.bin = emotion_df$BAI_bin * emotion_df$BDI_bin
+
+# logistic regression, combined
+log_mod_3 = glm(BAI.BDI.bin ~ THI_E + TPFQ_E + TFI_E, data = emotion_df, family = "binomial")
+preds = ifelse(predict(log_mod_3, emotion_df[,1:3], type = "response")>0.5, 1, 0)
+mean(emotion_df$BAI.BDI.bin==preds)
+1-mean(emotion_df$BAI.BDI.bin)
+```
+
+Accuracy 0.66, NIR 0.61. Terrible again.
+
+```{r}
+# Since TFI is the best, try to use its subscale to predict
+# extract TFI columns
+TFI_data = data.matrix(data[,c(16,17,18,19,20,21,22,23,24,25)])
+TFI_data = TFI_data[complete.cases(TFI_data),]
+colnames(TFI_data) = c("Intrusive","Control","Cognition","Sleep","Auditory","Relax",
+                       "Emotion","Quality","BAI","BDI")
+TFI_df = data.frame(TFI_data)
+trn_data = TFI_df[-tst_idx,]
+tst_data = TFI_df[tst_idx,]
+```
+
+```{r}
+# linear regression, BAI response
+lm_mod = lm(BAI ~ Intrusive + Control + Cognition + Sleep + Auditory + Relax + 
+                  Emotion + Quality, data = TFI_df)
+preds = predict(lm_mod, TFI_df)
+mae(TFI_df$BAI, preds)
+```
+
+```{r}
+plot(TFI_df$BAI, preds, pch=19, main = "Linear Regression, BAI",
+     xlab = "BAI", ylab = "predicted BAI")
+abline(0,1, col="red", lwd = 2)
+```
+
+```{r}
+# linear regression, BDI response
+lm_mod_2 = lm(BDI ~ Intrusive + Control + Cognition + Sleep + Auditory + Relax + 
+                    Emotion + Quality, data = TFI_df)
+preds = predict(lm_mod_2, TFI_df)
+mae(TFI_df$BDI, preds)
+```
+
+```{r}
+plot(TFI_df$BDI, preds, pch=19, main = "Linear Regression, BDI",
+     xlab = "BDI", ylab = "predicted BDI")
+abline(0,1, col="red", lwd = 2)
+```
+
+```{r}
+# log transform, BAI response
+log_mod = lm(log(BAI+1) ~ Intrusive + Control + Cognition + Sleep + Auditory + Relax + 
+                          Emotion + Quality, data = TFI_df)
+preds = predict(log_mod, TFI_df)
+mae(TFI_df$BAI, exp(preds)-1)
+```
+
+```{r}
+plot(TFI_df$BAI, exp(preds)-1, pch=19, main = "Log Transform, BAI",
+     xlab = "BAI", ylab = "predicted BAI")
+abline(0,1, col="red", lwd = 2)
+```
+
+```{r}
+# log transform, BDI response
+log_mod = lm(log(BDI+1) ~ Intrusive + Control + Cognition + Sleep + Auditory + Relax + 
+                          Emotion + Quality, data = TFI_df)
+preds = predict(log_mod, TFI_df)
+mae(TFI_df$BDI, exp(preds)-1)
+```
+
+```{r}
+plot(TFI_df$BDI, exp(preds)-1, pch=19, main = "Log Transform, BDI",
+     xlab = "BDI", ylab = "predicted BDI")
+abline(0,1, col="red", lwd = 2)
+```
+
+```{r}
+# decision tree, BAI
+tree_mod = rpart(BAI ~ Intrusive + Control + Cognition + Sleep + Auditory + Relax + 
+                       Emotion + Quality, data = TFI_df, cp = 0.001)
+preds = predict(tree_mod, TFI_df)
+mae(TFI_df$BAI, preds)
+```
+
+```{r}
+plot(TFI_df$BAI, preds, pch=19, main = "Decision Trees, BAI",
+     xlab = "BAI", ylab = "predicted BAI")
+abline(0,1, col="red", lwd = 2)
+```
+
+```{r}
+# decision tree, BDI
+tree_mod = rpart(BDI ~ Intrusive + Control + Cognition + Sleep + Auditory + Relax + 
+                       Emotion + Quality, data = TFI_df, cp = 0.001)
+preds = predict(tree_mod, TFI_df)
+mae(TFI_df$BDI, preds)
+```
+
+```{r}
+plot(TFI_df$BDI, preds, pch=19, main = "Decision Trees, BDI",
+     xlab = "BDI", ylab = "predicted BDI")
+abline(0,1, col="red", lwd = 2)
+```
+
+```{r}
+# random forest, BAI
+set.seed(1)
+rf_mod = randomForest(BAI ~ Intrusive + Control + Cognition + Sleep + Auditory + Relax + 
+                            Emotion + Quality, data = trn_data, mtry = 8)
+
+preds = predict(rf_mod, trn_data)
+mae(trn_data$BAI, preds)
+
+preds = predict(rf_mod, tst_data)
+mae(tst_data$BAI, preds)
+```
+
+```{r}
+set.seed(1)
+rf_mod = randomForest(BAI ~ Intrusive + Control + Cognition + Sleep + Auditory + Relax + 
+                            Emotion + Quality, data = TFI_df, mtry = 8)
+preds = predict(rf_mod, TFI_df)
+mae(TFI_df$BAI, preds)
+plot(TFI_df$BAI, preds, pch=19, main = "Random Forests, BAI",
+     xlab = "BAI", ylab = "predicted BAI")
+abline(0,1, col="red", lwd = 2)
+```
+
+```{r}
+# random forest, BDI
+set.seed(1)
+rf_mod = randomForest(BDI ~ Intrusive + Control + Cognition + Sleep + Auditory + Relax + 
+                            Emotion + Quality, data = trn_data, mtry = 8)
+
+preds = predict(rf_mod, trn_data)
+mae(trn_data$BDI, preds)
+
+preds = predict(rf_mod, tst_data)
+mae(tst_data$BDI, preds)
+```
+
+```{r}
+set.seed(1)
+rf_mod = randomForest(BDI ~ Intrusive + Control + Cognition + Sleep + Auditory + Relax + 
+                            Emotion + Quality, data = TFI_df, mtry = 8)
+
+preds = predict(rf_mod, TFI_df)
+mae(TFI_df$BDI, preds)
+plot(TFI_df$BDI, preds, pch=19, main = "Random Forests, BDI",
+     xlab = "BDI", ylab = "predicted BDI")
+abline(0,1, col="red", lwd = 2)
+```
+
+```{r}
+fitControl = trainControl(## 5-fold CV
+                           method = "repeatedcv",
+                           number = 5,
+                           ## repeated 5 times
+                           repeats = 5)
+gbmGrid <-  expand.grid(interaction.depth = c(2,4,6,8,10), 
+                        n.trees = c(100, 200, 500, 1000), 
+                        shrinkage = 0.01,
+                        n.minobsinnode = c(2, 4))
+set.seed(1)
+gbm_mod = train(BAI ~ Intrusive + Control + Cognition + Sleep + Auditory + Relax + 
+                 Emotion + Quality, data = TFI_df,
+                 method = "gbm",
+                 trControl = fitControl,
+                 ## This last option is actually one
+                 ## for gbm() that passes through
+                 verbose = FALSE, tuneGrid = gbmGrid)
+gbm_mod
+```
+
+```{r}
+# gbm, BAI
+set.seed(1)
+gbm_mod = gbm(BAI ~ Intrusive + Control + Cognition + Sleep + Auditory + Relax + 
+              Emotion + Quality, data = trn_data, distribution = "gaussian",
+              n.trees = 10000, interaction.depth = 10, shrinkage = 0.01)
+
+preds = predict(gbm_mod, trn_data)
+mae(trn_data$BAI, preds)
+
+preds = predict(gbm_mod, tst_data)
+mae(tst_data$BAI, preds)
+```
+
+```{r}
+set.seed(1)
+gbm_mod = gbm(BAI ~ Intrusive + Control + Cognition + Sleep + Auditory + Relax + 
+              Emotion + Quality, data = TFI_df, distribution = "gaussian",
+              n.trees = 10000, interaction.depth = 10, shrinkage = 0.01)
+
+preds = predict(gbm_mod, TFI_df)
+mae(TFI_df$BAI, preds)
+plot(TFI_df$BAI, preds, pch=19, main = "Gradient Boosting, BAI",
+     xlab = "BAI", ylab = "predicted BAI")
+abline(0,1, col="red", lwd = 2)
+```
+
+```{r}
+# gbm, BDI
+set.seed(1)
+gbm_mod = gbm(BDI ~ Intrusive + Control + Cognition + Sleep + Auditory + Relax + 
+              Emotion + Quality, data = trn_data, distribution = "gaussian",
+              n.trees = 10000, interaction.depth = 10, shrinkage = 0.01)
+
+preds = predict(gbm_mod, trn_data)
+mae(trn_data$BDI, preds)
+
+preds = predict(gbm_mod, tst_data)
+mae(tst_data$BDI, preds)
+```
+
+```{r}
+set.seed(1)
+gbm_mod = gbm(BDI ~ Intrusive + Control + Cognition + Sleep + Auditory + Relax + 
+              Emotion + Quality, data = TFI_df, distribution = "gaussian",
+              n.trees = 10000, interaction.depth = 10, shrinkage = 0.01)
+
+preds = predict(gbm_mod, TFI_df)
+mae(TFI_df$BDI, preds)
+plot(TFI_df$BDI, preds, pch=19, main = "Gradient Boosting, BDI",
+     xlab = "BDI", ylab = "predicted BDI")
+abline(0,1, col="red", lwd = 2)
+```
+
+
+
+
+
+
+
+
+
+
+```{r}
+# transform BAI and BDI to binary varibles
+TFI_df$BAI_bin = as.numeric(TFI_df$BAI<=2)
+TFI_df$BDI_bin = as.numeric(TFI_df$BDI<=2)
+```
+
+```{r}
+# logistic regression, BAI binary
+log_mod = glm(BAI_bin ~ Intrusive + Control + Cognition + Sleep + Auditory + Relax + 
+                Emotion + Quality, data = TFI_df, family = "binomial")
+preds = ifelse(predict(log_mod, TFI_df[,1:8], type = "response")>0.5, 1, 0)
+mean(TFI_df$BAI_bin==preds)
+mean(TFI_df$BAI_bin)
+```
+
+Accuracy 0.64, NIR 0.54. Terrible.
+
+```{r}
+# logistic regression, BDI binary
+log_mod_2 = glm(BDI_bin ~ Intrusive + Control + Cognition + Sleep + Auditory + Relax + 
+                  Emotion + Quality, data = TFI_df, family = "binomial")
+preds = ifelse(predict(log_mod_2, TFI_df[,1:8], type = "response")>0.5, 1, 0)
+mean(TFI_df$BDI_bin==preds)
+1-mean(TFI_df$BDI_bin)
+```
+
+Accuracy 0.70, NIR 0.51. Terrible.
+
+```{r}
+# combine BAI and BDI
+TFI_df$BAI.BDI.bin = TFI_df$BAI_bin * TFI_df$BDI_bin
+
+# logistic regression, combined
+log_mod_3 = glm(BAI.BDI.bin ~ Intrusive + Control + Cognition + Sleep + Auditory + Relax + 
+                  Emotion + Quality, data = TFI_df, family = "binomial")
+preds = ifelse(predict(log_mod_3, TFI_df[,1:8], type = "response")>0.5, 1, 0)
+mean(TFI_df$BAI.BDI.bin==preds)
+mean(TFI_df$BAI_bin)
+```
+
+Accuracy 0.73, NIR 0.54. **Still not good at all, but the best so far in our first trial.**
+
+Improvements:
+
+- 1. classification, SMOTE upsample (done)
+
+```{r}
+######### pooled emotional data
+library(smotefamily)
+## reclassification by BAI and BDI depression criteria
+emotion_df$BAI_bin <- emotion_df$BAI < 21
+emotion_df$BDI_bin <- emotion_df$BDI < 16
+emotion_df$BAI.BDI.bin <- emotion_df$BAI_bin*emotion_df$BDI_bin
+# check data balance
+mean(emotion_df$BAI.BDI.bin)
+```
+
+```{r}
+## using SMOTE to correct unbalanced data(response)
+gen_data <- SMOTE(emotion_df[,1:3],emotion_df[,8])
+test_data <- gen_data$data
+# check balance
+mean(as.numeric(test_data$class))
+```
+
+```{r}
+## logistic regression
+log_mod = glm(as.factor(class) ~ THI_E + TPFQ_E + TFI_E, data = test_data, family = "binomial")
+preds = ifelse(predict(log_mod, test_data[,1:3], type = "response")>0.5, 1, 0)
+mean(test_data$class==preds)
+
+preds = ifelse(predict(log_mod, emotion_df[,1:3], type = "response")>0.5, 1, 0)
+mean(emotion_df$BAI.BDI.bin==preds)
+```
+
+```{r}
+######### TFI data 
+## reclassification by BAI and BDI depression criteria
+TFI_df$BAI_bin <- TFI_df$BAI < 21
+TFI_df$BDI_bin <- TFI_df$BDI < 16
+TFI_df$BAI.BDI.bin <- TFI_df$BAI_bin*TFI_df$BDI_bin
+# check data balance
+mean(TFI_df$BAI.BDI.bin)
+```
+
+```{r}
+## using SMOTE to correct unbalanced data(response)
+gen_data <- SMOTE(TFI_df[,1:8],TFI_df[,13])
+test_data <- gen_data$data
+# check balance
+mean(as.numeric(test_data$class))
+```
+
+```{r}
+## logistic regression
+cat(colnames(test_data))
+log_mod = glm(as.factor(class) ~ Intrusive +Control +Cognition +Sleep +Auditory +Relax +Emotion +Quality, data = test_data, family = "binomial")
+preds = ifelse(predict(log_mod, test_data[,1:8], type = "response")>0.5, 1, 0)
+mean(test_data$class==preds)
+
+preds = ifelse(predict(log_mod, TFI_df[,1:8], type = "response")>0.5, 1, 0)
+mean(TFI_df$BAI.BDI.bin==preds)
+
+table(TFI_df$BAI.BDI.bin,preds)
+```
+
+- 2. BDI Q17, BAI Q6, Q16, Q19 (done)
+
+```{r}
+merged = read.csv("merged_copy.csv")
+merged = merged[,4:114]
+merged = merged[complete.cases(merged),]
+
+df = data.frame(THI_E = rowSums(merged[,c(3,6,10,16,17,21,22,25)])/32*100,
+                TPFQ_E = rowSums(merged[,c(53,58,63,65,68)])/5,
+                TFI_I = rowSums(merged[,c(26,27,28)])/3*10,
+                TFI_SC = rowSums(merged[,c(29,30,31)])/3*10,
+                TFI_C = rowSums(merged[,c(32,33,34)])/3*10,
+                TFI_SL = rowSums(merged[,c(35,36,37)])/3*10,
+                TFI_A = rowSums(merged[,c(38,39,40)])/3*10,
+                TFI_R = rowSums(merged[,c(41,42,43)])/3*10,
+                TFI_Q = rowSums(merged[,c(44,45,46,47)])/3*10,
+                TFI_E = rowSums(merged[,c(48,49,50)])/3*10,
+                BDI_Q17 = ifelse(merged[,86] > 0, 1, 0),
+                BAI_Q6  = ifelse(merged[,96] > 0, 1, 0),
+                BAI_Q11 = ifelse(merged[,101] > 0, 1, 0),
+                BAI_Q16 = ifelse(merged[,106] > 0, 1, 0),
+                BAI_Q18 = ifelse(merged[,108] > 0, 1, 0),
+                BAI_Q19 = ifelse(merged[,109] > 0, 1, 0),
+                BDI_total = rowSums(merged[,71:90]),
+                BAI_total = rowSums(merged[,91:111]))
+```
+
+```{r}
+table(df$BAI_Q19)
+```
+
+```{r}
+# logistic regression, BAI_Q19, ROSE upsampling, Emotional subscale predictors
+set.seed(1)
+rose_df = ROSE(BAI_Q19 ~ THI_E + TPFQ_E + TFI_E, data  = df)$data
+
+BAI_Q19_mod = glm(BAI_Q19 ~ ., data  = rose_df, family = "binomial")
+preds = ifelse(predict(BAI_Q19_mod, rose_df[,1:3], type = "response")>0.5, 1, 0)
+mean(rose_df$BAI_Q19==preds)
+1-mean(rose_df$BAI_Q19)
+```
+
+```{r}
+# logistic regression, BAI_Q19, ROSE upsampling, TFI predictors
+set.seed(1)
+rose_df = ROSE(BAI_Q19 ~ TFI_I + TFI_SC + TFI_C + TFI_SL + TFI_A + TFI_R + TFI_Q + TFI_E, data  = df)$data
+
+BAI_Q19_mod = glm(BAI_Q19 ~ ., data  = rose_df, family = "binomial")
+preds = ifelse(predict(BAI_Q19_mod, rose_df[,1:8], type = "response")>0.5, 1, 0)
+mean(rose_df$BAI_Q19==preds)
+1-mean(rose_df$BAI_Q19)
+```
+
+BAI Q19 is significant for both emotional subscale predictors and TFI predictors.
+
+```{r}
+# logistic regression, BAI_Q11, ROSE upsampling, TFI predictors
+set.seed(1)
+rose_df = ROSE(BAI_Q11 ~ TFI_I + TFI_SC + TFI_C + TFI_SL + TFI_A + TFI_R + TFI_Q + TFI_E, data  = df)$data
+
+BAI_Q11_mod = glm(BAI_Q11 ~ ., data  = rose_df, family = "binomial")
+preds = ifelse(predict(BAI_Q11_mod, rose_df[,1:8], type = "response")>0.5, 1, 0)
+mean(rose_df$BAI_Q11==preds)
+1-mean(rose_df$BAI_Q11)
+```
+
+BAI Q11 is significant for TFI predictors.
+
+Other results:
+
+- BAI Q19 (0.91, 0.98)
+- BAI Q18 (0.54, 0.65)
+- BAI Q16 (0.67, 0.68)
+- BAI Q11 (0.65, 0.79)
+- BAI Q6  (0.64, 0.63)
+- BDI Q17 (0.66, 0.63)
+

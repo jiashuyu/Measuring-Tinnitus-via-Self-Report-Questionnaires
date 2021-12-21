@@ -1,0 +1,226 @@
+---
+output: html_document
+---
+
+Purpose: In a previous step ("01B_run_efacfa_2021-03-03-1824-31.R") we ran EFA and CFA. In this file we take those results and create useful visuals.
+
+Load EFA/CFA:
+
+```{r message=FALSE, warning=FALSE}
+load("01B_out_efacfa_2021-03-03-1824-31.RData") # output of previous file
+
+library(kableExtra)
+library(ggplot2)
+library(LAM)
+library(psych)
+library(lavaan)
+
+source("01C_functions.R")
+```
+
+Open relevant tab:
+
+```{r}
+itab = "TPFQ" # Set manually!
+iresults =  results[[itab]]
+idata = data_tabs[[itab]]
+ilookup = lookups_all[[itab]]
+q_legacy = ncol(ilookup)-2
+```
+
+Get Goodness of fit (gof):
+
+```{r}
+gof_type = "cumss" # Set manually!
+# gof_type = "mle_dist" # Set manually!
+efa_gof = sapply(iresults$efa, get_efa_gof, gof_type=gof_type)
+efa_bic = sapply(iresults$efa, function(x) x$BIC) # poor measure
+legacy_gof = c(
+  "full"=get_cfa_gof(iresults$cfa$full$legacy, gof_type=gof_type)
+  , "reduced"=get_cfa_gof(iresults$cfa$reduced$legacy, gof_type=gof_type)
+)
+rand_gof = data.frame(cbind(
+  "full"=sapply(iresults$cfa$full$rand, get_cfa_gof, gof_type=gof_type)
+  , "reduced"=sapply(iresults$cfa$reduced$rand, get_cfa_gof, gof_type=gof_type)
+))
+legacy_one_gof = data.frame(cbind(
+  "full"=sapply(iresults$cfa$full$legacy_one, get_cfa_gof, gof_type=gof_type)
+  , "reduced"=sapply(iresults$cfa$reduced$legacy_one, get_cfa_gof, gof_type=gof_type)
+))
+rownames(legacy_one_gof) = colnames(ilookup)[-c(1,2)]
+legacy_qfactors = ncol(iresults$ilookup)-2
+```
+
+<b>Reduced vs Full:</b> When doing CFA we consider two models. The first is a reduced (sparse) model where $\Lambda$ is 0/1. The second is a full model where certain $\lambda_{ij}=0$ but the rest are unrestricted. In both cases we allow for an unrestricted $\Phi$. Done in Lavaan.
+
+<b>EFA #:</b> We look at the EFA goodness of fit for different number of parameters. Horizontal lines for legacy subscales. <i>Purpose</i> Compared to the legacy subscales, how much better performance could be achieved with an EFA model? Since EFA is more flexible we expect it to fit better, but if it performs MUCH better this indicates the legacy subscale may be poor.
+
+```{r}
+# EFA
+plot(efa_gof
+     , xlab="# of Factors", ylab=gof_lookup[["desc"]][gof_type], main=paste0(itab, ": EFA Goodness of Fit")
+     , ylim=get_lims(c(efa_gof, legacy_gof))
+)
+abline(h=legacy_gof["full"], col="blue")
+abline(h=legacy_gof["reduced"], col="darkred")
+legend("topright"
+       , legend=c("EFA", "Legacy Full", "Legacy Sparse")
+       , col=c("black", "blue", "darkred")
+       , lty = c(0,1,1)
+       , pch = c(1,NA,NA)
+)
+```
+
+```{r}
+barplot(
+  height=-diff(efa_gof)
+  , names.arg=paste0(2:(length(efa_gof)), "-", 1:(length(efa_gof)-1))
+  , ylab=gof_lookup[["desc"]][gof_type]
+  , xlab="Change in # of Factors"
+  , main=paste0(itab, ": EFA Change In Goodness of Fit")
+  )
+
+plot(efa_bic)
+```
+
+<b>EFA Target:</b> Tabular comparison of legacy subscale vs same-size EFA (target rotation). <i>Purpose</i> Are the legacy subscales consistent with EFA? Consistency indicates a good legacy fit.
+
+```{r}
+# EFA target rotation
+load_mat = loading_2_matrix(iresults$efa[[q_legacy]]$stat424_target$loadings)
+out = cbind(ilookup
+      , round(load_mat,3)
+      , id_l=apply(ilookup, 1, function(irow) which(irow==1)-2)
+      , id_efa=apply(abs(load_mat), 1, function(irow) which.max(irow))
+)
+kbl(out[,-2]) %>% kable_styling() %>% scroll_box(width = "800px", height = "500px") # Can add question description (column 2)
+```
+
+<b>EFA Best:</b> Can we interpret the 'best' EFA? <i>Purpose</i> We try to explain any differences between EFA and the legacy subscales.
+
+```{r}
+# EFA Best
+# best_efa_id = c("THI"=3, "TPFQ"=4, "TFI"=5)[itab] # Set manually!
+best_efa_id = legacy_qfactors
+print(best_efa_id)
+best_efa = iresults$efa[[best_efa_id]]
+if (best_efa$factors==1){
+  best_efa$stat424_oblimin = list("loadings"=loadings(best_efa))
+}
+out = cbind(
+  ilookup[,c(1,2)]
+  , round(loading_2_matrix(best_efa$stat424_oblimin$loadings),3)
+)
+kbl(out) %>% kable_styling() %>% scroll_box(width = "800px", height = "500px")
+```
+
+<b>CFA Full:</b> Compared to 100 randomly generated subscales, how well does legacy perform? In both cases we use 'full' model above. <i>Purpose</i> Is the legacy subscale better than choosing a subscale at random? How much better?
+
+```{r}
+# CFA Full
+plot(density(rand_gof$full)
+     , xlim=get_lims(c(rand_gof$full, legacy_gof["full"]))
+     , xlab=gof_lookup[["desc"]][gof_type], main=paste0(itab, ": Goodness of Fit\nRandom CFA Full")
+)
+abline(v=legacy_gof["full"], col="darkred")
+legend("topright"
+       , legend=c("Random Full", "Legacy Full")
+       , col=c("black", "darkred")
+       , lty = c(1,1))
+```
+
+```{r}
+# CFA Full
+plot(density(rand_gof$full)
+     , xlim=get_lims(c(rand_gof$full, legacy_gof["full"], efa_gof[best_efa_id]))
+     , xlab=gof_lookup[["desc"]][gof_type], main=paste0(itab, ": Goodness of Fit\nRandom CFA Full")
+)
+abline(v=legacy_gof["full"], col="darkred")
+abline(v=efa_gof[best_efa_id], col="darkblue")
+legend("topright"
+       , legend=c("Random Full", "Legacy Full", "EFA Best")
+       , col=c("black", "darkred", "darkblue")
+       , lty = c(1,1))
+```
+
+<b>CFA Reduced:</b> Compared to 100 randomly generated subscales, how well does legacy perform? In both cases we use 'reduced' model above. <i>Purpose</i> Is the legacy subscale better than choosing a subscale at random? How much better?
+
+```{r}
+# CFA reduced
+plot(density(rand_gof$reduced)
+     , xlim=get_lims(c(rand_gof$reduced, legacy_gof["reduced"]))
+     , xlab=gof_lookup[["desc"]][gof_type], main=paste0(itab, ": Goodness of Fit\nRandom CFA reduced")
+)
+abline(v=legacy_gof["reduced"], col="darkred")
+legend("topright"
+       , legend=c("Random Sparse", "Legacy Sparse")
+       , col=c("black", "darkred")
+       , lty = c(1,1))
+```
+
+```{r}
+# CFA reduced
+plot(density(rand_gof$reduced)
+     , xlim=get_lims(c(rand_gof$reduced, legacy_gof["reduced"], efa_gof[best_efa_id]))
+     , xlab=gof_lookup[["desc"]][gof_type], main=paste0(itab, ": Goodness of Fit\nRandom CFA reduced")
+)
+abline(v=legacy_gof["reduced"], col="darkred")
+abline(v=efa_gof[best_efa_id], col="darkblue")
+legend("topright"
+       , legend=c("Random Sparse", "Legacy Sparse", "EFA Best")
+       , col=c("black", "darkred", "darkblue")
+       , lty = c(1,1))
+```
+
+<b>Individual factors:</b> How well does each factor explain its corresponding items? Note that different factors have different numbers of items and this impacts goodness of fit.
+
+```{r}
+df_out = data.frame(
+  id=rownames(legacy_one_gof)
+  , gof=legacy_one_gof$reduced # / colSums(ilookup[,-c(1,2)]) # Division important
+  , stringsAsFactors = FALSE
+)
+df_out = df_out[order(df_out$gof, decreasing = TRUE),]
+df_out$id = factor(df_out$id, levels=df_out$id)
+ggplot(df_out, aes(x=id, y=gof)) + geom_bar(stat="identity") + labs(x="subscale", y = gof_lookup[["desc"]][gof_type], title=paste0(itab, " Subscale Goodness of Fit")) +   coord_flip() 
+```
+
+```{r}
+data.frame(
+  itab=c(
+    "Random Subscale (95%)"=paste0("[", paste(round(quantile(rand_gof$reduced,c(0.025,0.975)),3), collapse=", "), "]")
+    , "Legacy Subscale"=round(legacy_gof["reduced"],3)
+    , "EFA Subscale"=round(efa_gof[best_efa_id],3)
+    , "CFA Factors (#)"=ncol(iresults$ilookup)-2
+    , "EFA Factors (#)"=best_efa_id
+  )
+  
+)
+```
+
+```{r}
+efa_gof_all = do.call(cbind, lapply(
+  results
+  , function(iresults) sapply(iresults$efa, get_efa_gof, gof_type=gof_type)
+))
+plot(x=NA, y=NA, xlim=c(1,8), ylim=c(0,1)
+     , xlab="# of Factors"
+     , ylab=gof_lookup[["desc"]][gof_type]
+     , main="EFA Goodness of Fit")
+for (i in 1:ncol(efa_gof_all)){
+  points(1:8, efa_gof_all[,i], col=i, pch=i)
+}
+legend("bottomright"
+       , legend=colnames(efa_gof_all)
+       , col=1:ncol(efa_gof_all)
+       # , lty = c(0,1,1)
+       , pch =1:ncol(efa_gof_all)
+)
+```
+
+Misc...
+
+```{r}
+# sapply(iresults$efa, function(x) x$dof)
+# c(nrow(parameterEstimates(results$THI$cfa$reduced$legacy, remove.nonfree = TRUE)), nrow(parameterEstimates(results$TFI$cfa$reduced$legacy, remove.nonfree = TRUE)), nrow(parameterEstimates(results$TPFQ$cfa$reduced$legacy, remove.nonfree = TRUE)))
+```
